@@ -1,78 +1,24 @@
 # ============================================================
 # 걸생 베타 매미 종 동정 모델 3
+# Streamlit 웹사이트
 # Mel-Spectrogram + CNN
 # ============================================================
 
-import sys
-import subprocess
-import os
-import random
-
-
-# ============================================================
-# 1. 필요한 프로그램 자동 설치
-# ============================================================
-
-packages = [
-    "numpy",
-    "librosa",
-    "scikit-learn",
-    "tensorflow",
-    "streamlit",
-    "soundfile"
-]
-
-print("=" * 60)
-print("필요한 프로그램을 확인합니다.")
-print("=" * 60)
-
-for package in packages:
-
-    try:
-
-        if package == "scikit-learn":
-            import sklearn
-
-        else:
-            __import__(package)
-
-        print("✓", package, "설치됨")
-
-    except ImportError:
-
-        print("→", package, "설치 중...")
-
-        subprocess.check_call([
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            package
-        ])
-
-
-print()
-print("모든 프로그램 설치 완료!")
-
-
-# ============================================================
-# 2. 라이브러리
-# ============================================================
-
+import streamlit as st
+from pathlib import Path
+import tempfile
 import numpy as np
 import librosa
 import tensorflow as tf
 
-from sklearn.model_selection import train_test_split
-
 
 # ============================================================
-# 3. 기본 설정
+# 1. 기본 설정
 # ============================================================
 
 MODEL_NAME = "걸생 베타 매미 종 동정 모델"
 
-SPECIES = [
+CLASS_NAMES = [
     "말매미",
     "참매미",
     "쓰름매미",
@@ -83,572 +29,106 @@ SPECIES = [
 ]
 
 SAMPLE_RATE = 22050
-
 SEGMENT_SECONDS = 3
 
 N_MELS = 128
-
 N_FFT = 2048
-
 HOP_LENGTH = 512
 
-EPOCHS = 80
-
-BATCH_SIZE = 8
-
-RANDOM_SEED = 42
-
-
-np.random.seed(RANDOM_SEED)
-
-random.seed(RANDOM_SEED)
-
-tf.random.set_seed(RANDOM_SEED)
-
 
 # ============================================================
-# 4. 바탕화면 찾기
+# 2. 페이지 설정
 # ============================================================
 
-def find_desktop():
-
-    home = os.path.expanduser("~")
-
-    possible_paths = [
-
-        os.path.join(
-            home,
-            "Desktop"
-        ),
-
-        os.path.join(
-            home,
-            "OneDrive",
-            "Desktop"
-        ),
-
-        os.path.join(
-            home,
-            "바탕 화면"
-        ),
-
-        os.path.join(
-            home,
-            "OneDrive",
-            "바탕 화면"
-        )
-    ]
-
-    for path in possible_paths:
-
-        if os.path.exists(path):
-
-            model_folder = os.path.join(
-                path,
-                MODEL_NAME
-            )
-
-            if os.path.exists(model_folder):
-
-                return path
-
-    return None
-
-
-DESKTOP = find_desktop()
-
-
-if DESKTOP is None:
-
-    print()
-    print("❌ '걸생 베타 매미 종 동정 모델' 폴더를 찾지 못했습니다.")
-
-    print()
-    print("바탕화면에 다음 폴더가 있는지 확인하세요.")
-
-    print()
-    print("걸생 베타 매미 종 동정 모델")
-
-    input(
-        "\nEnter를 누르면 종료합니다."
-    )
-
-    sys.exit()
-
-
-# ============================================================
-# 5. 폴더
-# ============================================================
-
-BASE_FOLDER = os.path.join(
-
-    DESKTOP,
-
-    MODEL_NAME
-
-)
-
-
-DATA_FOLDER = os.path.join(
-
-    BASE_FOLDER,
-
-    "울음소리 표본"
-
-)
-
-
-print()
-print("=" * 60)
-
-print("모델 폴더:")
-print(BASE_FOLDER)
-
-print()
-
-print("음원 폴더:")
-print(DATA_FOLDER)
-
-print("=" * 60)
-
-
-if not os.path.exists(DATA_FOLDER):
-
-    print()
-    print("❌ 울음소리 표본 폴더가 없습니다.")
-
-    input(
-        "\nEnter를 누르면 종료합니다."
-    )
-
-    sys.exit()
-
-
-# ============================================================
-# 6. 음원 파일 찾기
-# ============================================================
-
-print()
-print("=" * 60)
-print("음원 파일 확인")
-print("=" * 60)
-
-
-all_files = []
-
-
-for species_index, species in enumerate(
-    SPECIES
-):
-
-    species_folder = os.path.join(
-
-        DATA_FOLDER,
-
-        species
-
-    )
-
-
-    if not os.path.exists(
-        species_folder
-    ):
-
-        print(
-            "❌ 폴더 없음:",
-            species
-        )
-
-        continue
-
-
-    files = []
-
-
-    for file_name in os.listdir(
-        species_folder
-    ):
-
-        if file_name.lower().endswith(
-            (
-                ".mp3",
-                ".wav",
-                ".m4a",
-                ".flac"
-            )
-        ):
-
-            files.append(
-
-                os.path.join(
-
-                    species_folder,
-
-                    file_name
-
-                )
-
-            )
-
-
-    print(
-        species,
-        ":",
-        len(files),
-        "개"
-    )
-
-
-    for file_path in files:
-
-        all_files.append(
-
-            (
-                file_path,
-                species_index
-            )
-
-        )
-
-
-# ============================================================
-# 7. 음원 존재 확인
-# ============================================================
-
-if len(all_files) == 0:
-
-    print()
-    print("❌ 음원 파일을 하나도 찾지 못했습니다.")
-
-    input(
-        "\nEnter를 누르면 종료합니다."
-    )
-
-    sys.exit()
-
-
-print()
-print(
-    "전체 원본 음원:",
-    len(all_files),
-    "개"
+st.set_page_config(
+    page_title="걸생 베타 매미 종 동정",
+    page_icon="🦗",
+    layout="centered"
 )
 
 
 # ============================================================
-# 8. 원본 파일 기준 학습 / 검증 분리
+# 3. 제목
 # ============================================================
 
-file_paths = np.array(
+st.title("🦗 걸생 베타 매미 종 동정")
 
-    [
-        item[0]
-        for item in all_files
-    ]
-
+st.write(
+    "매미 울음소리를 이용하여 "
+    "6종의 매미와 배경소리를 동정합니다."
 )
 
-
-file_labels = np.array(
-
-    [
-        item[1]
-        for item in all_files
-    ]
-
-)
+st.divider()
 
 
-print()
-print("=" * 60)
-print("학습 / 검증 파일 분리")
-print("=" * 60)
+# ============================================================
+# 4. 모델 위치
+# ============================================================
 
+BASE_DIR = Path(__file__).resolve().parent
 
-X_train_files, X_test_files, y_train_files, y_test_files = (
-
-    train_test_split(
-
-        file_paths,
-
-        file_labels,
-
-        test_size=0.33,
-
-        random_state=RANDOM_SEED,
-
-        stratify=file_labels
-
-    )
-
-)
-
-
-print()
-print(
-    "학습용 원본:",
-    len(X_train_files),
-    "개"
-)
-
-
-print(
-    "검증용 원본:",
-    len(X_test_files),
-    "개"
+MODEL_PATH = (
+    BASE_DIR
+    / "model"
+    / "매미모델3.keras"
 )
 
 
 # ============================================================
-# 9. 음원 불러오기
+# 5. TensorFlow 설정
 # ============================================================
 
-def load_audio(file_path):
-
-    audio, sr = librosa.load(
-
-        file_path,
-
-        sr=SAMPLE_RATE,
-
-        mono=True
-
-    )
-
-    return audio
+try:
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+except Exception:
+    pass
 
 
 # ============================================================
-# 10. 3초 단위 분할
+# 6. 모델 불러오기
 # ============================================================
 
-def split_audio(audio):
+@st.cache_resource
+def load_model():
 
-    segment_length = (
+    if not MODEL_PATH.exists():
 
-        SAMPLE_RATE *
-        SEGMENT_SECONDS
-
-    )
-
-
-    segments = []
-
-
-    # 3초보다 짧은 경우
-
-    if len(audio) < segment_length:
-
-        audio = np.pad(
-
-            audio,
-
-            (
-                0,
-
-                segment_length - len(audio)
-
-            )
-
+        raise FileNotFoundError(
+            f"모델 파일을 찾을 수 없습니다.\n\n"
+            f"필요한 위치:\n{MODEL_PATH}"
         )
 
-        segments.append(
-            audio
-        )
-
-        return segments
-
-
-    # 3초씩 자르기
-
-    for start in range(
-
-        0,
-
-        len(audio) - segment_length + 1,
-
-        segment_length
-
-    ):
-
-        segment = audio[
-
-            start:
-            start + segment_length
-
-        ]
-
-
-        segments.append(
-            segment
-        )
-
-
-    return segments
-
-
-# ============================================================
-# 11. 음원 증강
-# ============================================================
-
-def augment_audio(audio):
-
-    method = random.choice(
-
-        [
-            "volume",
-            "noise",
-            "shift"
-        ]
-
-    )
-
-
-    # --------------------------------------------------------
-    # 음량 변화
-    # --------------------------------------------------------
-
-    if method == "volume":
-
-        gain = random.uniform(
-
-            0.7,
-
-            1.3
-
-        )
-
-        audio = audio * gain
-
-
-    # --------------------------------------------------------
-    # 작은 잡음
-    # --------------------------------------------------------
-
-    elif method == "noise":
-
-        noise_level = random.uniform(
-
-            0.002,
-
-            0.01
-
-        )
-
-
-        noise = np.random.normal(
-
-            0,
-
-            noise_level,
-
-            len(audio)
-
-        )
-
-
-        audio = audio + noise
-
-
-    # --------------------------------------------------------
-    # 시간 이동
-    # --------------------------------------------------------
-
-    elif method == "shift":
-
-        max_shift = int(
-
-            SAMPLE_RATE * 0.2
-
-        )
-
-
-        shift = random.randint(
-
-            -max_shift,
-
-            max_shift
-
-        )
-
-
-        audio = np.roll(
-
-            audio,
-
-            shift
-
-        )
-
-
-    # --------------------------------------------------------
-    # 음량 제한
-    # --------------------------------------------------------
-
-    maximum = np.max(
-
-        np.abs(audio)
-
-    )
-
-
-    if maximum > 1:
-
-        audio = (
-
-            audio /
-            maximum
-
-        )
-
-
-    return audio.astype(
-        np.float32
+    return tf.keras.models.load_model(
+        MODEL_PATH
     )
 
 
 # ============================================================
-# 12. Mel-Spectrogram
+# 7. Mel-Spectrogram 생성
 # ============================================================
 
 def make_mel_spectrogram(audio):
 
     mel = librosa.feature.melspectrogram(
-
         y=audio,
-
         sr=SAMPLE_RATE,
-
         n_fft=N_FFT,
-
         hop_length=HOP_LENGTH,
-
         n_mels=N_MELS,
-
         fmin=50,
-
         fmax=SAMPLE_RATE // 2
-
     )
-
 
     mel_db = librosa.power_to_db(
-
         mel,
-
         ref=np.max
-
     )
 
-
-    # 정규화
-
+    # 학습할 때와 동일한 정규화
     mel_db = (
-
         mel_db + 80
-
     ) / 80
-
 
     return mel_db.astype(
         np.float32
@@ -656,628 +136,345 @@ def make_mel_spectrogram(audio):
 
 
 # ============================================================
-# 13. 학습 데이터
+# 8. 음원 분석
 # ============================================================
 
-X_train = []
+def predict_audio(audio_path):
 
-y_train = []
+    model = load_model()
 
+    # --------------------------------------------------------
+    # 음원 불러오기
+    # --------------------------------------------------------
 
-print()
-print("=" * 60)
-print("학습 데이터 생성")
-print("=" * 60)
-
-
-for file_path, label in zip(
-
-    X_train_files,
-
-    y_train_files
-
-):
-
-    print(
-
-        "학습:",
-        SPECIES[label],
-        "|",
-        os.path.basename(file_path)
-
+    audio, _ = librosa.load(
+        audio_path,
+        sr=SAMPLE_RATE,
+        mono=True
     )
 
+    if len(audio) == 0:
 
-    try:
-
-        audio = load_audio(
-            file_path
+        raise ValueError(
+            "분석할 수 있는 음원이 없습니다."
         )
 
+    # --------------------------------------------------------
+    # 3초 길이
+    # --------------------------------------------------------
 
-        segments = split_audio(
-            audio
-        )
-
-
-        for segment in segments:
-
-            # ------------------------------------------------
-            # 원본
-            # ------------------------------------------------
-
-            mel = make_mel_spectrogram(
-
-                segment
-
-            )
-
-
-            X_train.append(
-                mel
-            )
-
-
-            y_train.append(
-                label
-            )
-
-
-            # ------------------------------------------------
-            # 증강 데이터 2개
-            # ------------------------------------------------
-
-            for _ in range(2):
-
-                augmented = augment_audio(
-
-                    segment
-
-                )
-
-
-                mel = make_mel_spectrogram(
-
-                    augmented
-
-                )
-
-
-                X_train.append(
-                    mel
-                )
-
-
-                y_train.append(
-                    label
-                )
-
-
-    except Exception as e:
-
-        print(
-            "⚠ 파일 처리 오류:",
-            e
-        )
-
-
-# ============================================================
-# 14. 검증 데이터
-# ============================================================
-
-X_test = []
-
-y_test = []
-
-
-print()
-print("=" * 60)
-print("검증 데이터 생성")
-print("=" * 60)
-
-
-for file_path, label in zip(
-
-    X_test_files,
-
-    y_test_files
-
-):
-
-    print(
-
-        "검증:",
-        SPECIES[label],
-        "|",
-        os.path.basename(file_path)
-
+    segment_samples = (
+        SAMPLE_RATE
+        * SEGMENT_SECONDS
     )
 
-
-    try:
-
-        audio = load_audio(
-            file_path
-        )
-
-
-        segments = split_audio(
-            audio
-        )
-
-
-        for segment in segments:
-
-            # 검증 데이터는 증강하지 않음
-
-            mel = make_mel_spectrogram(
-
-                segment
-
-            )
-
-
-            X_test.append(
-                mel
-            )
-
-
-            y_test.append(
-                label
-            )
-
-
-    except Exception as e:
-
-        print(
-            "⚠ 파일 처리 오류:",
-            e
-        )
-
-
-# ============================================================
-# 15. NumPy 변환
-# ============================================================
-
-X_train = np.array(
-
-    X_train,
-
-    dtype=np.float32
-
-)
-
-
-X_test = np.array(
-
-    X_test,
-
-    dtype=np.float32
-
-)
-
-
-y_train = np.array(
-
-    y_train,
-
-    dtype=np.int32
-
-)
-
-
-y_test = np.array(
-
-    y_test,
-
-    dtype=np.int32
-
-)
-
-
-# ============================================================
-# 16. CNN 입력 형태
-# ============================================================
-
-X_train = X_train[
-    ..., np.newaxis
-]
-
-
-X_test = X_test[
-    ..., np.newaxis
-]
-
-
-print()
-print("=" * 60)
-print("데이터 준비 완료")
-print("=" * 60)
-
-
-print()
-print(
-    "학습 데이터:",
-    X_train.shape
-)
-
-
-print(
-    "검증 데이터:",
-    X_test.shape
-)
-
-
-# ============================================================
-# 17. CNN 모델
-# ============================================================
-
-model = tf.keras.Sequential([
-
-    tf.keras.layers.Input(
-
-        shape=X_train.shape[1:]
-
-    ),
-
-
-    # --------------------------------------------------------
-    # CNN 1
-    # --------------------------------------------------------
-
-    tf.keras.layers.Conv2D(
-
-        32,
-
-        (3, 3),
-
-        padding="same",
-
-        activation="relu"
-
-    ),
-
-
-    tf.keras.layers.BatchNormalization(),
-
-
-    tf.keras.layers.MaxPooling2D(
-
-        (2, 2)
-
-    ),
-
-
-    tf.keras.layers.Dropout(
-
-        0.20
-
-    ),
-
-
-    # --------------------------------------------------------
-    # CNN 2
-    # --------------------------------------------------------
-
-    tf.keras.layers.Conv2D(
-
-        64,
-
-        (3, 3),
-
-        padding="same",
-
-        activation="relu"
-
-    ),
-
-
-    tf.keras.layers.BatchNormalization(),
-
-
-    tf.keras.layers.MaxPooling2D(
-
-        (2, 2)
-
-    ),
-
-
-    tf.keras.layers.Dropout(
-
-        0.25
-
-    ),
-
-
-    # --------------------------------------------------------
-    # CNN 3
-    # --------------------------------------------------------
-
-    tf.keras.layers.Conv2D(
-
-        128,
-
-        (3, 3),
-
-        padding="same",
-
-        activation="relu"
-
-    ),
-
-
-    tf.keras.layers.BatchNormalization(),
-
-
-    tf.keras.layers.MaxPooling2D(
-
-        (2, 2)
-
-    ),
-
-
-    tf.keras.layers.Dropout(
-
-        0.30
-
-    ),
-
-
-    # --------------------------------------------------------
-    # 특징 압축
-    # --------------------------------------------------------
-
-    tf.keras.layers.GlobalAveragePooling2D(),
-
-
-    # --------------------------------------------------------
-    # 분류
-    # --------------------------------------------------------
-
-    tf.keras.layers.Dense(
-
-        128,
-
-        activation="relu"
-
-    ),
-
-
-    tf.keras.layers.Dropout(
-
-        0.40
-
-    ),
-
-
-    tf.keras.layers.Dense(
-
-        len(SPECIES),
-
-        activation="softmax"
-
+    probability_sum = np.zeros(
+        len(CLASS_NAMES),
+        dtype=np.float32
     )
 
-])
-
-
-# ============================================================
-# 18. 학습 설정
-# ============================================================
-
-model.compile(
-
-    optimizer=tf.keras.optimizers.Adam(
-
-        learning_rate=0.0005
-
-    ),
-
-    loss="sparse_categorical_crossentropy",
-
-    metrics=["accuracy"]
-
-)
-
-
-# ============================================================
-# 19. 조기 종료
-# ============================================================
-
-early_stopping = tf.keras.callbacks.EarlyStopping(
-
-    monitor="val_loss",
-
-    patience=12,
-
-    restore_best_weights=True
-
-)
-
-
-# ============================================================
-# 20. 학습 시작
-# ============================================================
-
-print()
-print("=" * 60)
-print("매미모델3 학습 시작")
-print("=" * 60)
-print()
-
-
-history = model.fit(
-
-    X_train,
-
-    y_train,
-
-    validation_data=(
-
-        X_test,
-
-        y_test
-
-    ),
-
-    epochs=EPOCHS,
-
-    batch_size=BATCH_SIZE,
-
-    callbacks=[
-
-        early_stopping
-
-    ],
-
-    verbose=1
-
-)
-
-
-# ============================================================
-# 21. 평가
-# ============================================================
-
-loss, accuracy = model.evaluate(
-
-    X_test,
-
-    y_test,
-
-    verbose=0
-
-)
-
-
-print()
-print("=" * 60)
-print("학습 완료")
-print("=" * 60)
-
-
-print()
-print(
-    "검증 정확도:",
-    round(
-
-        accuracy * 100,
-
-        2
-
-    ),
-    "%"
-)
-
-
-# ============================================================
-# 22. 모델 저장
-# ============================================================
-
-model_path = os.path.join(
-
-    BASE_FOLDER,
-
-    "매미모델3.keras"
-
-)
-
-
-model.save(
-
-    model_path
-
-)
-
-
-print()
-print("=" * 60)
-print("모델 저장 완료!")
-print("=" * 60)
-
-
-print()
-print("저장 위치:")
-print(model_path)
-
-
-# ============================================================
-# 23. 클래스 정보 저장
-# ============================================================
-
-class_path = os.path.join(
-
-    BASE_FOLDER,
-
-    "매미클래스3.txt"
-
-)
-
-
-with open(
-
-    class_path,
-
-    "w",
-
-    encoding="utf-8"
-
-) as f:
-
-    for i, species in enumerate(
-
-        SPECIES
-
+    analyzed_count = 0
+
+    # --------------------------------------------------------
+    # 3초씩 분석
+    # --------------------------------------------------------
+
+    for start in range(
+        0,
+        len(audio),
+        segment_samples
     ):
 
-        f.write(
+        segment = audio[
+            start:
+            start + segment_samples
+        ]
 
-            f"{i}: {species}\n"
+        # 마지막 구간이 3초보다 짧으면 0으로 채움
+        if len(segment) < segment_samples:
 
+            segment = np.pad(
+                segment,
+                (
+                    0,
+                    segment_samples
+                    - len(segment)
+                )
+            )
+
+        # ----------------------------------------------------
+        # Mel-Spectrogram
+        # ----------------------------------------------------
+
+        mel = make_mel_spectrogram(
+            segment
         )
 
+        # CNN 입력 형태
+        x_one = mel[
+            np.newaxis,
+            ...,
+            np.newaxis
+        ]
 
-print()
-print("클래스 정보:")
-print(class_path)
+        # ----------------------------------------------------
+        # 예측
+        # ----------------------------------------------------
+
+        prediction = model.predict(
+            x_one,
+            verbose=0
+        )[0]
+
+        probability_sum += prediction
+
+        analyzed_count += 1
+
+    # --------------------------------------------------------
+    # 평균 확률
+    # --------------------------------------------------------
+
+    if analyzed_count == 0:
+
+        raise ValueError(
+            "분석할 수 있는 음원이 없습니다."
+        )
+
+    average_prediction = (
+        probability_sum
+        / analyzed_count
+    )
+
+    percentages = (
+        average_prediction * 100
+    )
+
+    best_index = int(
+        np.argmax(
+            average_prediction
+        )
+    )
+
+    return {
+        "best_species":
+            CLASS_NAMES[best_index],
+
+        "best_percentage":
+            float(
+                percentages[best_index]
+            ),
+
+        "probabilities": [
+            {
+                "species": species,
+                "percentage":
+                    float(percentage)
+            }
+
+            for species, percentage
+            in zip(
+                CLASS_NAMES,
+                percentages
+            )
+        ],
+
+        "segment_count":
+            analyzed_count,
+
+        "audio_length":
+            len(audio)
+            / SAMPLE_RATE
+    }
 
 
 # ============================================================
-# 24. 최종 결과
+# 9. 음원 업로드
 # ============================================================
 
-print()
-print("=" * 60)
-print("「매미모델3」 제작 완료!")
-print("=" * 60)
-
-
-print()
-print("모델 파일:")
-
-print(
-    "매미모델3.keras"
+uploaded_file = st.file_uploader(
+    "매미 울음소리 파일을 업로드하세요.",
+    type=[
+        "mp3",
+        "wav",
+        "m4a",
+        "flac"
+    ]
 )
 
 
-print()
-print("클래스:")
+# ============================================================
+# 10. 업로드된 음원 표시
+# ============================================================
 
-for i, species in enumerate(
-    SPECIES
-):
+if uploaded_file is not None:
 
-    print(
-        i,
-        "→",
-        species
+    st.success(
+        f"파일 업로드 완료: {uploaded_file.name}"
     )
 
+    st.audio(
+        uploaded_file
+    )
 
-print()
-print("이제 이 모델을 웹사이트에 연결할 수 있습니다.")
+    st.divider()
 
 
-input(
-    "\nEnter를 누르면 종료합니다."
+# ============================================================
+# 11. 동정 시작
+# ============================================================
+
+if uploaded_file is not None:
+
+    if st.button(
+        "🔎 매미 종 동정 시작",
+        use_container_width=True
+    ):
+
+        with st.spinner(
+            "매미 울음소리를 분석하고 있습니다..."
+        ):
+
+            try:
+
+                # 임시 파일 생성
+                suffix = Path(
+                    uploaded_file.name
+                ).suffix
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=suffix
+                ) as temp_file:
+
+                    temp_file.write(
+                        uploaded_file.getbuffer()
+                    )
+
+                    temp_path = (
+                        temp_file.name
+                    )
+
+                # 분석
+                result = predict_audio(
+                    temp_path
+                )
+
+                # 임시 파일 삭제
+                Path(
+                    temp_path
+                ).unlink(
+                    missing_ok=True
+                )
+
+                # 결과 저장
+                st.session_state[
+                    "result"
+                ] = result
+
+            except Exception as e:
+
+                st.error(
+                    "음원 분석 중 오류가 발생했습니다."
+                )
+
+                st.exception(e)
+
+
+# ============================================================
+# 12. 결과 표시
+# ============================================================
+
+if "result" in st.session_state:
+
+    result = st.session_state[
+        "result"
+    ]
+
+    st.divider()
+
+    st.subheader(
+        "🧬 동정 결과"
+    )
+
+    # --------------------------------------------------------
+    # 가장 높은 확률
+    # --------------------------------------------------------
+
+    st.success(
+        f"가장 높은 예측: "
+        f"**{result['best_species']}**"
+    )
+
+    st.metric(
+        "예측 확률",
+        f"{result['best_percentage']:.2f}%"
+    )
+
+    # --------------------------------------------------------
+    # 음원 정보
+    # --------------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.metric(
+            "음원 길이",
+            f"{result['audio_length']:.2f}초"
+        )
+
+    with col2:
+
+        st.metric(
+            "분석 구간",
+            f"{result['segment_count']}개"
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # 종별 확률
+    # --------------------------------------------------------
+
+    st.subheader(
+        "종별 예측 확률"
+    )
+
+    for item in result[
+        "probabilities"
+    ]:
+
+        species = item[
+            "species"
+        ]
+
+        percentage = item[
+            "percentage"
+        ]
+
+        st.write(
+            f"**{species}** "
+            f"{percentage:.2f}%"
+        )
+
+        st.progress(
+            min(
+                max(
+                    percentage / 100,
+                    0.0
+                ),
+                1.0
+            )
+        )
+
+
+# ============================================================
+# 13. 안내
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "걸생 베타 매미 종 동정 모델 3 · "
+    "Mel-Spectrogram + CNN"
 )
