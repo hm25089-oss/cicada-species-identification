@@ -1,4 +1,3 @@
-# ============================================================
 # 걸생 베타 매미 종 동정 모델 - 웹사이트 버전
 # ============================================================
 # 기능
@@ -64,6 +63,13 @@ from pathlib import Path
 import numpy as np
 import librosa
 import tensorflow as tf
+
+# ------------------------------------------------------------
+# Render 무료 서버 메모리 절약 설정
+# ------------------------------------------------------------
+
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(1)
 
 from flask import (
     Flask,
@@ -804,6 +810,7 @@ def home():
     methods=["POST"]
 )
 def predict():
+
     # --------------------------------------------------------
     # 음원 파일 확인
     # --------------------------------------------------------
@@ -822,17 +829,15 @@ def predict():
                 "음원 파일을 선택해주세요."
         }, 400
 
-    # --------------------------------------------------------
-    # 임시 파일 저장
-    # --------------------------------------------------------
-
     import tempfile
 
     temp_path = None
 
     try:
 
-        # 확장자 확인
+        # ----------------------------------------------------
+        # 파일 확장자 확인
+        # ----------------------------------------------------
 
         original_name = file.filename
 
@@ -853,7 +858,9 @@ def predict():
                     "MP3, WAV, M4A, FLAC 파일만 사용할 수 있습니다."
             }, 400
 
-        # 임시 파일 만들기
+        # ----------------------------------------------------
+        # 임시 파일 저장
+        # ----------------------------------------------------
 
         with tempfile.NamedTemporaryFile(
                 delete=False,
@@ -866,45 +873,69 @@ def predict():
 
             temp_path = temp_file.name
 
-        # ----------------------------------------------------
-        # 음원 불러오기
-        # ----------------------------------------------------
-
         print()
         print(
             "웹사이트 음원 분석:",
             original_name
         )
 
+        # ----------------------------------------------------
+        # 음원 불러오기
+        # 최대 180초까지만 분석하여 메모리 사용 제한
+        # ----------------------------------------------------
+
         audio, sr = librosa.load(
             temp_path,
             sr=SAMPLE_RATE,
-            mono=True
+            mono=True,
+            duration=180
         )
 
-        # ----------------------------------------------------
-        # 음원 길이
-        # ----------------------------------------------------
-
         audio_length = (
-                len(audio)
-                / SAMPLE_RATE
+            len(audio)
+            / SAMPLE_RATE
         )
 
         print(
-            f"음원 길이: {audio_length:.2f}초"
+            f"분석 음원 길이: {audio_length:.2f}초"
         )
 
         # ----------------------------------------------------
-        # 3초 단위 분할
+        # 3초 단위 분석
+        # 모든 구간을 리스트에 저장하지 않음
         # ----------------------------------------------------
 
         segment_samples = (
-                SAMPLE_RATE
-                * SEGMENT_SECONDS
+            SAMPLE_RATE
+            * SEGMENT_SECONDS
         )
 
-        segments = []
+        total_segments = int(
+            np.ceil(
+                len(audio)
+                / segment_samples
+            )
+        )
+
+        print(
+            f"분석 구간: {total_segments}개"
+        )
+
+        # ----------------------------------------------------
+        # 확률을 누적해서 평균 계산
+        # predictions 배열 전체를 저장하지 않음
+        # ----------------------------------------------------
+
+        probability_sum = np.zeros(
+            len(CLASS_NAMES),
+            dtype=np.float32
+        )
+
+        analyzed_count = 0
+
+        # ----------------------------------------------------
+        # 3초 구간을 하나씩 분석
+        # ----------------------------------------------------
 
         for start in range(
                 0,
@@ -917,9 +948,7 @@ def predict():
                 start + segment_samples
             ]
 
-            # 마지막 구간이 짧으면
-            # 0으로 채우기
-
+            # 마지막 구간이 짧으면 0으로 채움
             if len(segment) < segment_samples:
                 segment = np.pad(
                     segment,
@@ -930,21 +959,10 @@ def predict():
                     )
                 )
 
-            segments.append(
-                segment
-            )
+            # ------------------------------------------------
+            # MFCC 추출
+            # ------------------------------------------------
 
-        print(
-            f"분석 구간: {len(segments)}개"
-        )
-
-        # ----------------------------------------------------
-        # MFCC 추출
-        # ----------------------------------------------------
-
-        features = []
-
-        for segment in segments:
             mfcc = librosa.feature.mfcc(
                 y=segment,
                 sr=SAMPLE_RATE,
@@ -956,48 +974,53 @@ def predict():
                 axis=1
             )
 
-            features.append(
-                mfcc_mean
+            # 모델 입력 형태: (1, 40)
+            X_one = np.expand_dims(
+                mfcc_mean,
+                axis=0
             )
 
-        # ----------------------------------------------------
-        # numpy 배열
-        # ----------------------------------------------------
+            # ------------------------------------------------
+            # 현재 3초 구간만 예측
+            # ------------------------------------------------
 
-        X = np.array(
-            features
-        )
+            prediction = model.predict(
+                X_one,
+                verbose=0
+            )[0]
 
-        print(
-            "특징 데이터 크기:",
-            X.shape
-        )
+            probability_sum += prediction
+            analyzed_count += 1
 
-        # ----------------------------------------------------
-        # 모델 예측
-        # ----------------------------------------------------
-
-        predictions = model.predict(
-            X,
-            verbose=0
-        )
+            # 현재 구간 데이터 즉시 삭제
+            del segment
+            del mfcc
+            del mfcc_mean
+            del X_one
+            del prediction
 
         # ----------------------------------------------------
-        # 전체 음원의 평균 확률
+        # 평균 확률 계산
         # ----------------------------------------------------
 
-        average_prediction = np.mean(
-            predictions,
-            axis=0
+        if analyzed_count == 0:
+            return {
+                "error":
+                    "분석할 수 있는 음원이 없습니다."
+            }, 400
+
+        average_prediction = (
+            probability_sum
+            / analyzed_count
         )
 
         percentages = (
-                average_prediction
-                * 100
+            average_prediction
+            * 100
         )
 
         # ----------------------------------------------------
-        # 최종 종
+        # 가장 높은 확률의 종
         # ----------------------------------------------------
 
         best_index = np.argmax(
@@ -1010,16 +1033,14 @@ def predict():
             ]
         )
 
-        best_percentage = (
-            float(
-                percentages[
-                    best_index
-                ]
-            )
+        best_percentage = float(
+            percentages[
+                best_index
+            ]
         )
 
         # ----------------------------------------------------
-        # 결과 만들기
+        # 7개 클래스 결과
         # ----------------------------------------------------
 
         probability_list = []
@@ -1028,6 +1049,7 @@ def predict():
                 CLASS_NAMES,
                 percentages
         ):
+
             probability_list.append(
                 {
                     "species":
@@ -1062,55 +1084,42 @@ def predict():
         print("=" * 60)
 
         # ----------------------------------------------------
-        # 웹페이지로 결과 반환
+        # 메모리 정리
+        # ----------------------------------------------------
+
+        del audio
+        del probability_sum
+        del average_prediction
+        del percentages
+
+        # ----------------------------------------------------
+        # 웹페이지로 JSON 결과 반환
         # ----------------------------------------------------
 
         return {
-
             "success": True,
-
-            "filename":
-                original_name,
-
-            "audio_length":
-                round(
-                    audio_length,
-                    2
-                ),
-
-            "segment_count":
-                len(segments),
-
-            "best_species":
-                best_species,
-
-            "best_percentage":
-                best_percentage,
-
-            "probabilities":
-                probability_list
-
+            "filename": original_name,
+            "audio_length": round(audio_length, 2),
+            "segment_count": analyzed_count,
+            "best_species": best_species,
+            "best_percentage": best_percentage,
+            "probabilities": probability_list
         }
-
 
     except Exception as e:
 
         print()
         print(
             "분석 오류:",
-            e
+            repr(e)
         )
 
         return {
-
             "error":
                 "음원 분석 중 오류가 발생했습니다.",
-
             "detail":
                 str(e)
-
         }, 500
-
 
     finally:
 
@@ -1124,13 +1133,10 @@ def predict():
         ):
 
             try:
-
                 os.remove(
                     temp_path
                 )
-
             except Exception:
-
                 pass
 
 
