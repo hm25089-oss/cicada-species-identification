@@ -1,6 +1,5 @@
-Flask
+streamlit
 tensorflow
 librosa
 numpy
 soundfile
-gunicorn
